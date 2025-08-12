@@ -1,0 +1,67 @@
+openapi: 3.0.0
+info:
+  title: Capture The Flag API
+  version: 1.0.0
+  description: API for user registration, login, and password management.
+servers:
+  - url: http://localhost:27017
+paths:
+  /register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        201:
+          description: User registered successfully
+        409:
+          description: Registration failed
+  /login:
+    post:
+      summary: Login a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        200:
+          description: Login successful
+        401:
+          description: Invalid credentials
+  /change_password:
+    post:
+      summary: Change user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                old_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        200:
+          description: Password changed successfully
+        401:
+          description: Failed to change password
