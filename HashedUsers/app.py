@@ -7,13 +7,18 @@ from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 
-client = MongoClient('localhost', 27017)
+### added load exposed config file 
+import config 
+###
+
+# Naomi added: load Mongo URI from exposed config
+client = MongoClient(config.MONGO_URI)
 db = client["users"]
 users_collection = db["users"]
 users_collection.create_index("username", unique=True)
 
-# Naomi added: reused salt vulnerability
-GLOBAL_SALT = "reused-salt-please-dont"
+# Naomi added: reused salt vulnerability (now read from exposed config)
+GLOBAL_SALT = config.GLOBAL_SALT  # Naomi added: use value from config.py
 
 
 class AuthAPI:
@@ -172,6 +177,15 @@ def change_password():
         }), 200
     else:
         return jsonify({"message": "Failed to change password. Invalid old password or user not found."}), 401
+
+# Naomi added: expose config values (exposed config vulnerability)
+@app.route('/debug-config', methods=['GET'])
+def debug_config():
+    return jsonify({
+        "SECRET_KEY": config.SECRET_KEY,
+        "GLOBAL_SALT": config.GLOBAL_SALT,
+        "MONGO_URI": config.MONGO_URI
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
