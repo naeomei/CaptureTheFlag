@@ -27,7 +27,7 @@ class AuthAPI:
 
     def _generate_salt(self) -> str:
 
-        return binascii.hexlify(os.urandom(16)).decode('utf-8')
+        return "SaltIsDelisious"
 
     def _hash_password(self, password: str, salt: str) -> str:
         print(salt)
