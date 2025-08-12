@@ -7,7 +7,7 @@ from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 
-### added load exposed config file 
+### Naomi added: load exposed config file 
 import config 
 ###
 
@@ -17,8 +17,11 @@ db = client["users"]
 users_collection = db["users"]
 users_collection.create_index("username", unique=True)
 
-# Naomi added: reused salt vulnerability (now read from exposed config)
-GLOBAL_SALT = config.GLOBAL_SALT  # Naomi added: use value from config.py
+# Vulnerability: Reused salt + Exposed config file (GLOBAL_SALT in config.py)
+GLOBAL_SALT = config.GLOBAL_SALT  
+
+# Naomi added: password reset tooling
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 
 class AuthAPI:
@@ -27,10 +30,11 @@ class AuthAPI:
         self.db_collection = db_collection
 
     def _generate_salt(self) -> str:
-        # Naomi added: always return same salt (reused salt vulnerability)
+        # Vulnerability: Reused salt (same value for every user)
         return GLOBAL_SALT
 
     def _hash_password(self, password: str, salt: str) -> str:
+        # Vulnerability: MD5 for password storage 
         print(salt)
         password_salted = (password + salt).encode('utf-8')
         hashed = hashlib.md5(password_salted).hexdigest()
@@ -56,6 +60,7 @@ class AuthAPI:
         hashed_password = self._hash_password(password, salt)
 
         try:
+            # Vulnerability: Salt stored separately & accessible in DB
             self.db_collection.insert_one({
                 "username": username,
                 "salt": salt,
@@ -111,11 +116,18 @@ class AuthAPI:
             print(f"An error occurred during password change: {e}")
             return False
 
+
 app = Flask(__name__)
 auth_api = AuthAPI(users_collection)
 
+# Naomi added: serializer for reset tokens (exposed SECRET_KEY)
+serializer = URLSafeTimedSerializer(config.SECRET_KEY)
+
 @app.route('/register', methods=['POST'])
 def register():
+    # Vulnerabilities: 
+    # - Salt stored separately & accessible
+    # - Hashes exposed in API response
     data = request.get_json()
     if not data or 'username' not in data or 'password' not in data:
         return jsonify({"message": "Missing username or password"}), 400
@@ -124,7 +136,6 @@ def register():
     password = data['password']
 
     if auth_api.register_user(username, password):
-        # Naomi added: leak salt & hash in registration response
         user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
         return jsonify({
             "message": "User registered successfully",
@@ -137,6 +148,9 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
+    # Vulnerabilities: 
+    # - Salt stored separately & accessible
+    # - Hashes exposed in API response
     data = request.get_json()
     if not data or 'username' not in data or 'password' not in data:
         return jsonify({"message": "Missing username or password"}), 400
@@ -145,7 +159,6 @@ def login():
     password = data['password']
 
     if auth_api.login_user(username, password):
-        # Naomi added: leak salt & hash in login response
         user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
         return jsonify({
             "message": "Login successful",
@@ -158,6 +171,9 @@ def login():
 
 @app.route('/change_password', methods=['POST'])
 def change_password():
+    # Vulnerabilities: 
+    # - Salt stored separately & accessible
+    # - Hashes exposed in API response
     data = request.get_json()
     if not data or 'username' not in data or 'old_password' not in data or 'new_password' not in data:
         return jsonify({"message": "Missing username, old_password, or new_password"}), 400
@@ -167,7 +183,6 @@ def change_password():
     new_password = data['new_password']
 
     if auth_api.change_password(username, old_password, new_password):
-        # Naomi added: leak updated salt & hash after password change
         user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
         return jsonify({
             "message": "Password changed successfully",
@@ -178,9 +193,53 @@ def change_password():
     else:
         return jsonify({"message": "Failed to change password. Invalid old password or user not found."}), 401
 
-# Naomi added: expose config values (exposed config vulnerability)
+@app.route('/password_reset/request', methods=['POST'])
+def request_reset():
+    # Vulnerabilities: 
+    # - Exposed config file (SECRET_KEY)
+    # - Token returned in API response
+    # - No verification before issuing token
+    data = request.get_json()
+    username = data.get('username')
+    user = users_collection.find_one({"username": username})
+    if not user:
+        return jsonify({"message": "No such user"}), 404
+
+    token = serializer.dumps(username)  # signed token with username
+    users_collection.update_one({"username": username}, {"$set": {"reset_token": token}})  # stored in DB (readable)
+    return jsonify({"message": "Reset token generated", "token": token}), 200
+
+@app.route('/password_reset/confirm', methods=['POST'])
+def confirm_reset():
+    # Vulnerabilities:
+    # - Exposed config file (SECRET_KEY)
+    # - Hashes exposed in API response
+    # - No identity verification besides token
+    data = request.get_json()
+    token = data.get('token')
+    new_password = data.get('new_password')
+
+    try:
+        username = serializer.loads(token, max_age=3600)  # token validity
+    except (BadSignature, SignatureExpired):
+        return jsonify({"message": "Invalid or expired token"}), 400
+
+    salt = auth_api._generate_salt()
+    hashed = auth_api._hash_password(new_password, salt)
+    users_collection.update_one({"username": username}, {"$set": {"salt": salt, "hashed_password": hashed}})
+
+    user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
+    return jsonify({
+        "message": "Password reset successful",
+        "username": username,
+        "salt": user.get("salt"),
+        "hashed_password": user.get("hashed_password"),
+        "token_used": token
+    }), 200
+
 @app.route('/debug-config', methods=['GET'])
 def debug_config():
+    # Vulnerability: Exposed config file via API
     return jsonify({
         "SECRET_KEY": config.SECRET_KEY,
         "GLOBAL_SALT": config.GLOBAL_SALT,
