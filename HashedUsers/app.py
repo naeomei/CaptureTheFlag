@@ -8,12 +8,14 @@ from typing import Dict, Any
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
+from pymongo.server_api import ServerApi
 
-client = MongoClient('localhost', 27017)
-db = client["users"]
-users_collection = db["users"]
+uri = "mongodb+srv://admin:admin@supersecurepasswords.9s5oxox.mongodb.net/?retryWrites=true&w=majority&appName=SuperSecurePasswords"
+
+client = MongoClient(uri, server_api=ServerApi('1'))
+db = client["SecureDatabase"]
+users_collection = db["SafeUsers"]
 users_collection.create_index("username", unique=True)
-
 
 class AuthAPI:
 
