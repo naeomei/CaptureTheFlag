@@ -1,5 +1,3 @@
-## Google Gemini used to help generate authorization code, as well as general Flask generation
-
 import hashlib
 import os
 import binascii
@@ -14,18 +12,18 @@ db = client["users"]
 users_collection = db["users"]
 users_collection.create_index("username", unique=True)
 
+# Naomi added: reused salt vulnerability
+GLOBAL_SALT = "reused-salt-please-dont"
+
 
 class AuthAPI:
 
-
     def __init__(self, db_collection: Any):
-
         self.db_collection = db_collection
 
-
     def _generate_salt(self) -> str:
-
-        return binascii.hexlify(os.urandom(16)).decode('utf-8')
+        # Naomi added: always return same salt (reused salt vulnerability)
+        return GLOBAL_SALT
 
     def _hash_password(self, password: str, salt: str) -> str:
         print(salt)
@@ -34,7 +32,6 @@ class AuthAPI:
         return hashed
 
     def _validate_password(self, password: str) -> bool:
-
         if len(password) < 8:
             return False
         if not re.search(r"[A-Z]", password):
@@ -46,7 +43,6 @@ class AuthAPI:
         return True
 
     def register_user(self, username: str, password: str) -> bool:
-
         if not self._validate_password(password):
             print("Invalid password.")
             return False
@@ -70,7 +66,6 @@ class AuthAPI:
             return False
 
     def login_user(self, username: str, password: str) -> bool:
-
         user_data = self.db_collection.find_one({"username": username})
 
         if not user_data:
@@ -90,7 +85,6 @@ class AuthAPI:
             return False
 
     def change_password(self, username: str, old_password: str, new_password: str) -> bool:
-
         if not self.login_user(username, old_password):
             print(f"Password change failed: Old password for '{username}' is incorrect.")
             return False
@@ -117,7 +111,6 @@ auth_api = AuthAPI(users_collection)
 
 @app.route('/register', methods=['POST'])
 def register():
-
     data = request.get_json()
     if not data or 'username' not in data or 'password' not in data:
         return jsonify({"message": "Missing username or password"}), 400
@@ -126,13 +119,19 @@ def register():
     password = data['password']
 
     if auth_api.register_user(username, password):
-        return jsonify({"message": "User registered successfully"}), 201
+        # Naomi added: leak salt & hash in registration response
+        user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
+        return jsonify({
+            "message": "User registered successfully",
+            "username": username,
+            "salt": user.get("salt") if user else None,
+            "hashed_password": user.get("hashed_password") if user else None
+        }), 201
     else:
         return jsonify({"message": "Registration Failed"}), 409
 
 @app.route('/login', methods=['POST'])
 def login():
-
     data = request.get_json()
     if not data or 'username' not in data or 'password' not in data:
         return jsonify({"message": "Missing username or password"}), 400
@@ -141,13 +140,19 @@ def login():
     password = data['password']
 
     if auth_api.login_user(username, password):
-        return jsonify({"message": "Login successful"}), 200
+        # Naomi added: leak salt & hash in login response
+        user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
+        return jsonify({
+            "message": "Login successful",
+            "username": username,
+            "salt": user.get("salt") if user else None,
+            "hashed_password": user.get("hashed_password") if user else None
+        }), 200
     else:
         return jsonify({"message": "Invalid credentials"}), 401
 
 @app.route('/change_password', methods=['POST'])
 def change_password():
-
     data = request.get_json()
     if not data or 'username' not in data or 'old_password' not in data or 'new_password' not in data:
         return jsonify({"message": "Missing username, old_password, or new_password"}), 400
@@ -157,9 +162,15 @@ def change_password():
     new_password = data['new_password']
 
     if auth_api.change_password(username, old_password, new_password):
-        return jsonify({"message": "Password changed successfully"}), 200
+        # Naomi added: leak updated salt & hash after password change
+        user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
+        return jsonify({
+            "message": "Password changed successfully",
+            "username": username,
+            "salt": user.get("salt") if user else None,
+            "hashed_password": user.get("hashed_password") if user else None
+        }), 200
     else:
-
         return jsonify({"message": "Failed to change password. Invalid old password or user not found."}), 401
 
 if __name__ == '__main__':
