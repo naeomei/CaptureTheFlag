@@ -6,15 +6,18 @@ from typing import Dict, Any
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
+# Naomi added: Atlas Stable API to mirror main branch usage
+from pymongo.server_api import ServerApi
 
 ### Naomi added: load exposed config file 
-import config 
+import config
 ###
 
-# Naomi added: load Mongo URI from exposed config
-client = MongoClient(config.MONGO_URI)
-db = client["users"]
-users_collection = db["users"]
+# Naomi added: connect to MongoDB Atlas using exposed config (mirrors main branch)
+client = MongoClient(config.MONGO_URI, server_api=ServerApi('1'))
+# Naomi added: match main branch names
+db = client["SecureDatabase"]
+users_collection = db["SafeUsers"]
 users_collection.create_index("username", unique=True)
 
 # Vulnerability: Reused salt + Exposed config file (GLOBAL_SALT in config.py)
@@ -34,7 +37,7 @@ class AuthAPI:
         return GLOBAL_SALT
 
     def _hash_password(self, password: str, salt: str) -> str:
-        # Vulnerability: MD5 for password storage 
+        # Vulnerability: MD5 for password storage (weak, fast to crack)
         print(salt)
         password_salted = (password + salt).encode('utf-8')
         hashed = hashlib.md5(password_salted).hexdigest()
@@ -120,7 +123,7 @@ class AuthAPI:
 app = Flask(__name__)
 auth_api = AuthAPI(users_collection)
 
-# Naomi added: serializer for reset tokens (exposed SECRET_KEY)
+# Naomi added: serializer for reset tokens (insecure use of exposed SECRET_KEY)
 serializer = URLSafeTimedSerializer(config.SECRET_KEY)
 
 @app.route('/register', methods=['POST'])
@@ -247,4 +250,4 @@ def debug_config():
     }), 200
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", debug=True)  
