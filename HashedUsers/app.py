@@ -4,11 +4,13 @@ import hashlib
 import os
 import binascii
 import re
+import secrets
 from typing import Dict, Any
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 from pymongo.server_api import ServerApi
+from itsdangerous import URLSafeTimedSerializer, BadSignature, Serializer, SignatureExpired
 
 uri = "mongodb+srv://admin:admin@supersecurepasswords.9s5oxox.mongodb.net/?retryWrites=true&w=majority&appName=SuperSecurePasswords"
 
@@ -114,7 +116,16 @@ class AuthAPI:
             print(f"An error occurred during password change: {e}")
             return False
 
+def authenticate_token(token):
+    s = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+    try:
+        data = s.loads(token)
+        print(data)
+        return data["username"]
+    except (BadSignature, SignatureExpired):
+        return None
 app = Flask(__name__)
+app.config['SECRET_KEY'] = "2444666668888888"
 auth_api = AuthAPI(users_collection)
 
 @app.route('/register', methods=['POST'])
@@ -142,10 +153,12 @@ def login():
     username = data['username']
     password = data['password']
 
-    if auth_api.login_user(username, password):
-        return jsonify({"message": "Login successful"}), 200
-    else:
+    if not auth_api.login_user(username, password):
         return jsonify({"message": "Invalid credentials"}), 401
+
+    s = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+    token = s.dumps({"username": username, "password": password})
+    return jsonify({"message": 'Login Successful', "access_token": token}), 200
 
 @app.route('/change_password', methods=['POST'])
 def change_password():
@@ -163,6 +176,22 @@ def change_password():
     else:
 
         return jsonify({"message": "Failed to change password. Invalid old password or user not found."}), 401
+
+
+@app.route('/protected', methods=['GET'])
+def protected():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '  ):
+        return jsonify({"message": "Invalid token/Auth Header"}), 401
+
+    token = auth_header.split(' ')[1]
+    print(token)
+    username = authenticate_token(token)
+    print(username)
+    if not username:
+        return jsonify({"message": "Invalid token"}), 401
+
+    return jsonify({"message": f'Welcome {username}'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
