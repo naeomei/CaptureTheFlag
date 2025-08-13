@@ -1,5 +1,7 @@
 # CaptureTheFlag
-To start the application run the following commands in the HashedUsers directory:
-pip install flask
-pip install pymongo
-python app.py
+
+###docker build -t vuln-auth-app -f ./HashedUsers/DockerFile ./HashedUsers
+###docker run --rm -p 5001:5000 vuln-auth-app
+
+
+#### curl -i http://127.0.0.1:5001/debug-config

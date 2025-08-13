@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    container_name: vuln-auth-app
+    ports:
+      - "5000:5000"
+    environment:
+      # only needed if your app used env vars; since you use config.py, not required
+      - FLASK_ENV=development
+    restart: unless-stopped
+

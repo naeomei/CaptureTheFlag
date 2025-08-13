@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: API for user registration, login, and password management.
 servers:
-  - url: http://localhost:27017
+  - url: http://localhost:5000
 paths:
   /register:
     post:
