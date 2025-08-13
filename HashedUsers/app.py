@@ -1,13 +1,16 @@
+## Google Gemini used to help generate authorization code, as well as general Flask generation
+
 import hashlib
 import os
 import binascii
 import re
+import secrets
 from typing import Dict, Any
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
-# Naomi added: Atlas Stable API to mirror main branch usage
 from pymongo.server_api import ServerApi
+from itsdangerous import URLSafeTimedSerializer, BadSignature, Serializer, SignatureExpired
 
 ### Naomi added: load exposed config file 
 import config
@@ -119,7 +122,13 @@ class AuthAPI:
             print(f"An error occurred during password change: {e}")
             return False
 
-
+def authenticate_token(token):
+    try:
+        data = serializer.loads(token)
+        print(data)
+        return data["username"]
+    except (BadSignature, SignatureExpired):
+        return None
 app = Flask(__name__)
 auth_api = AuthAPI(users_collection)
 
@@ -163,18 +172,20 @@ def login():
 
     if auth_api.login_user(username, password):
         user = users_collection.find_one({"username": username}, {"_id": 0, "salt": 1, "hashed_password": 1})
+        token = serializer.dumps({"username": username, "password": password})
         return jsonify({
             "message": "Login successful",
             "username": username,
             "salt": user.get("salt") if user else None,
-            "hashed_password": user.get("hashed_password") if user else None
+            "hashed_password": user.get("hashed_password") if user else None,
+            "access_token": token
         }), 200
     else:
         return jsonify({"message": "Invalid credentials"}), 401
 
 @app.route('/change_password', methods=['POST'])
 def change_password():
-    # Vulnerabilities: 
+    # Vulnerabilities:
     # - Salt stored separately & accessible
     # - Hashes exposed in API response
     data = request.get_json()
@@ -196,9 +207,25 @@ def change_password():
     else:
         return jsonify({"message": "Failed to change password. Invalid old password or user not found."}), 401
 
+
+@app.route('/protected', methods=['GET'])
+def protected():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '  ):
+        return jsonify({"message": "Invalid token/Auth Header"}), 401
+
+    token = auth_header.split(' ')[1]
+    print(token)
+    username = authenticate_token(token)
+    print(username)
+    if not username:
+        return jsonify({"message": "Invalid token"}), 401
+
+    return jsonify({"message": f'Welcome {username}'}), 200
+
 @app.route('/password_reset/request', methods=['POST'])
 def request_reset():
-    # Vulnerabilities: 
+    # Vulnerabilities:
     # - Exposed config file (SECRET_KEY)
     # - Token returned in API response
     # - No verification before issuing token
@@ -250,4 +277,4 @@ def debug_config():
     }), 200
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", debug=True)  
+    app.run(host="0.0.0.0", debug=True)
