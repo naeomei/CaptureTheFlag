@@ -276,5 +276,9 @@ def debug_config():
         "MONGO_URI": config.MONGO_URI
     }), 200
 
+@app.route('/debug', methods=['GET'])
+def debug():
+    return jsonify({"message": "Options: debug-config"})
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", debug=True)
